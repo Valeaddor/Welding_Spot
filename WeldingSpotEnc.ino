@@ -1,6 +1,7 @@
 #include <TM1637.h>
 #include <EEPROM.h>
 #include <EncButton.h>
+#include <EEManager.h>
 
 //pins definitions for TM1637 and can be changed to other ports    
 #define TM1637_CLK 6
@@ -10,7 +11,15 @@
 #define ENC_2 3
 #define ENC_BTN 4
 #define PEDAL_PIN 11 // Кнопка (педаль) спуска
-//#define DEBOUNCE 100  // таймаут антидребезга, миллисекунды
+
+// структура для хранения данных
+struct Data {
+  byte weldingTime;
+  unsigned long f_count;
+};
+Data ee_data;  // переменная, с которой мы работаем в программе
+
+EEManager memory(ee_data); // передаём нашу переменную (фактически её адрес)
 
 const byte ledPin = 13;       // Пин с сигнальным светодиодом
 const byte triggerPin = 10;   // Пин управления MOSFET'ами
@@ -27,24 +36,19 @@ EncButton<EB_TICK, ENC_1, ENC_2, ENC_BTN> my_enc;
 EncButton<EB_TICK, PEDAL_PIN> my_pedal;
 //EncButton2<EB_BTN> my_pedal(INPUT_PULLUP, PEDAL_PIN);
 
-int8_t TDisp[] = {11,0x7f,0x7f,2};
+int8_t TDisp[] = {11,0x7f,0x7f,3};
 
 // Объявляем переменные:
-int WeldingNow = LOW;
-boolean FootSwitch = true;
 boolean ShowDelay = false;
 
 unsigned long Ver_Timer = 0;
 
-//unsigned long lastDebounceTime = 0;
-//unsigned long lastTDebounceTime = 0;
-//unsigned long debounceDelay = 50;    // минимальное время в мс, которое надо выждать до срабатывания. Сделано для предотвращения ложных срабатываний при дребезге контактов спусковой кнопки
-
-byte weldingTime = 1;        // ...и на его основе выставляем задержку
-
+byte weldingTime = 1;
 
 void setup() {
   // put your setup code here, to run once:
+
+  memory.begin(0, 'V');
 
   //my_enc.setEncType(EB_HALFSTEP); // тип энкодера: EB_FULLSTEP (0) по умолч., EB_HALFSTEP (1) если энкодер делает один поворот за два щелчка
   //my_enc.setButtonLevel(HIGH);     // уровень кнопки: LOW - кнопка подключает GND (по умолч.), HIGH - кнопка подключает VCC
@@ -57,9 +61,11 @@ void setup() {
   digitalWrite(triggerPin, LOW);
   digitalWrite(buzzerPin,  LOW);
 
-  if (EEPROM.read(0) != 255) {
-    weldingTime = EEPROM.read(0);
-  }
+//  if (EEPROM.read(0) != 255) {
+//    weldingTime = EEPROM.read(0);
+//  }
+
+  weldingTime = ee_data.weldingTime;
 
 //  if (EEPROM.read(1) != 255) {
 //    FootSwitch = EEPROM.read(1);
@@ -80,6 +86,8 @@ void setup() {
 
 void loop() {
   // put your main code here, to run repeatedly:
+
+   memory.tick();
 
    my_enc.tick();                     // опрос энкодера
 
@@ -109,18 +117,27 @@ void loop() {
       err_beep();
   }
 
-//  if (my_enc.press()) {
-//    err_beep();
-//  }
+  if (my_enc.press()) {
+      TDisp[0] = 15;
+      TDisp[1] = ee_data.f_count/100;
+      TDisp[2] = ee_data.f_count%100/10;
+      TDisp[3] = ee_data.f_count%10;
+      tm1637.display(TDisp);
+      ShowDelay = false;
+      Ver_Timer = (millis() + 2000);
+      start_beep();
+  }
 
 
   if(my_pedal.press()) {
 
       TDisp[0] = 15;
-      TDisp[1] = 0;
-      TDisp[2] = 0;
-      TDisp[3] = 1;
+      TDisp[1] = ee_data.f_count/100;
+      TDisp[2] = ee_data.f_count%100/10;
+      TDisp[3] = ee_data.f_count%10;
       tm1637.display(TDisp);
+      ShowDelay = false;
+      Ver_Timer = (millis() + 2000);
 
   // Выдаём три коротких и один длинный писк в динамик:
   //   byte cnt = 1;
@@ -156,9 +173,11 @@ void loop() {
     digitalWrite(ledPin,     LOW);
     digitalWrite(buzzerPin,  LOW);
 
-    EEPROM.update(0,weldingTime);
+    ee_data.weldingTime = weldingTime;
+    ee_data.f_count++;
+    memory.update();
+//    EEPROM.update(0,weldingTime);
 //    EEPROM.update(1,FootSwitch);
-    ShowDelay = true;
     
   }
 
@@ -197,6 +216,6 @@ void err_beep() {
 
 void start_beep() {
 
-  playTone(1915, 200); // другие ноты на выбор: 1915, 1700, 1519, 1432, 1275, 1136, 1014, 956
+  playTone(1519, 200); // другие ноты на выбор: 1915, 1700, 1519, 1432, 1275, 1136, 1014, 956
 
 }
